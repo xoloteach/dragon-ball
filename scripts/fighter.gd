@@ -194,18 +194,18 @@ func style_mesh(mesh_node: MeshInstance3D) -> void:
 		elif "blue highlight" in material_name:
 			color = Color(0.06, 0.26, 0.75)
 		elif "hair lit" in material_name:
-			color = Color(1.0, 0.71, 0.10)
+			color = Color(1.0, 0.83, 0.20)
 		elif "sun gold" in material_name:
-			color = Color(0.95, 0.45, 0.013)
+			color = Color(1.0, 0.64, 0.05)
 		elif "hair amber" in material_name:
-			color = Color(0.61, 0.23, 0.01)
+			color = Color(0.91, 0.44, 0.015)
 		elif "teal" in material_name:
 			color = Color(0.025, 0.43, 0.39)
 		elif "ivory" in material_name:
 			color = Color(0.82, 0.87, 0.74)
 		var name_low := mesh_node.name.to_lower()
 		if fighter_id == "nova" and ("hair" in name_low or "spike" in name_low):
-			color = Color(1.0, .83, .32) if i == 0 else Color(1.0, .65, .10)
+			color = Color(1.0, .88, .35) if i == 0 else Color(1.0, .71, .16)
 		if fighter_id == "dusk":
 			if "hair" in name_low or "spike" in name_low:
 				color = Color(0.10, 0.17, 0.27) if i != 0 else Color(0.34, 0.55, 0.76)
@@ -586,10 +586,16 @@ func action(kind: String) -> bool:
 
 
 func play_clip(clip: String, speed := 1.0) -> void:
+	var playback_speed := speed
 	if animation_player and animation_player.has_animation(clip):
-		animation_player.play(clip, .075, speed)
+		var length := animation_player.get_animation(clip).length
+		if clip in ["jab", "cross", "rising_kick", "elbow", "heavy", "launcher", "beam", "ultimate"] and attack_name != "" and attack_length > 0.0:
+			playback_speed = maxf(speed, length / attack_length)
+		elif clip in ["hit", "knockback"] and stunned > 0.0:
+			playback_speed = maxf(speed, length / stunned)
+		animation_player.play(clip, .075, playback_speed)
 	if lod_animation_player and lod_animation_player.has_animation(clip):
-		lod_animation_player.play(clip, .075, speed)
+		lod_animation_player.play(clip, .075, playback_speed)
 
 
 func aim() -> Vector3:
@@ -633,7 +639,8 @@ func take_hit(damage: float, impulse: Vector3, attacker: ArenaFighter) -> void:
 
 
 func set_guard(value: bool) -> void:
-	if value and not guarding:
+	var can_guard := value and stamina > 0.0 and stunned <= 0.0 and attack_clock <= 0.0
+	if can_guard and not guarding:
 		counter_timer = 0.15
 		play_clip("guard")
-	guarding = value and stamina > 0.0 and stunned <= 0.0
+	guarding = can_guard

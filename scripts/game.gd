@@ -4,6 +4,7 @@ const Fighter = preload("res://scripts/fighter.gd")
 const ARENA = preload("res://assets/models/sunscar_arena.glb")
 const FONT = preload("res://assets/fonts/Rajdhani-Bold.ttf")
 const GROUND_SHADER = preload("res://shaders/ground.gdshader")
+const ENERGY_SHADER = preload("res://shaders/energy.gdshader")
 const SOLAR_MODEL = preload("res://assets/models/solar_ascendant.glb")
 const NOVA_MODEL = preload("res://assets/models/solar_nova.glb")
 const DUSK_MODEL = preload("res://assets/models/dusk_rival.glb")
@@ -80,6 +81,15 @@ func capture_scene(variant: String) -> void:
 		player.facing = (enemy.global_position-player.global_position).normalized()
 		player.action("heavy")
 		capture_wait = .18
+	elif variant == "ultimate":
+		start_fight()
+		state = "combat"
+		status_label.text = ""
+		enemy.global_position = player.global_position + Vector3(0,0,-7.0)
+		enemy.stunned = 2.0
+		player.ki = player.max_ki
+		player.action("ultimate")
+		capture_wait = 1.0
 	elif variant == "select":
 		show_select()
 	elif variant.begins_with("portrait"):
@@ -754,12 +764,9 @@ func energy_ball(radius: float, color: Color) -> MeshInstance3D:
 	mesh.rings = 8
 	var ob := MeshInstance3D.new()
 	ob.mesh = mesh
-	var mat := StandardMaterial3D.new()
-	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	mat.albedo_color = color
-	mat.emission_enabled = true
-	mat.emission = color
-	mat.emission_energy_multiplier = 4.0
+	var mat := ShaderMaterial.new()
+	mat.shader = ENERGY_SHADER
+	mat.set_shader_parameter("energy_color", color)
 	ob.material_override = mat
 	add_child(ob)
 	return ob
@@ -821,7 +828,7 @@ func on_beam(origin: Vector3, direction: Vector3, power: float, owner: ArenaFigh
 
 func on_ultimate(origin: Vector3, direction: Vector3, owner: ArenaFighter) -> void:
 	var color := owner.tint
-	var sphere := energy_ball(1.45, color)
+	var sphere := energy_ball(1.15, color)
 	sphere.global_position = origin + direction * 2.0
 	effect_data.append({"node":sphere,"life":1.7,"max":1.7,"scale":1.0,"kind":"ultimate",
 		"origin":origin,"direction":direction,"owner":owner,"triggered":false})
@@ -1008,7 +1015,7 @@ func update_effects(delta: float) -> void:
 		elif e.kind == "ring": node.scale = Vector3.ONE * (1.0 + 1.8 * (1.0 - e.life/e.max))
 		elif e.kind == "ultimate":
 			var elapsed: float = e.max - e.life
-			node.scale = Vector3.ONE * (0.55 + minf(1.7, elapsed * 1.5))
+			node.scale = Vector3.ONE * (0.6 + minf(1.0, elapsed * .85))
 			if elapsed > .75:
 				node.global_position = e.origin + e.direction * (2.0 + (elapsed - .75) * 25.0)
 			if elapsed > 1.10 and not e.triggered:

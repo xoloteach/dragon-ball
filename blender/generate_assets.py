@@ -40,7 +40,7 @@ blue = mat("cobalt blue fabric", (0.025, 0.19, 0.65))
 blue_light = mat("blue highlight", (0.075, 0.38, 0.93))
 hair = mat("sun gold hair", (1.0, 0.59, 0.015), emission=0.22)
 hair_light = mat("hair lit planes", (1.0, 0.88, 0.14), emission=0.26)
-hair_shadow = mat("hair amber planes", (0.76, 0.29, 0.014))
+hair_shadow = mat("hair amber planes", (0.94, 0.49, 0.018))
 ink = mat("ink contours", (0.055, 0.035, 0.045))
 eye_white = mat("ivory eye whites", (0.9, 0.96, 0.87))
 iris = mat("teal irises", (0.06, 0.63, 0.61))
@@ -164,8 +164,8 @@ def animation_library():
       "rising_kick":(21,{"Torso":(.2,0,-.12),"RLeg":(-1.50,0,.06),"RArm":(-.95,0,.2),
                             "LArm":(-.7,0,-.12)}),
       "elbow":(17,{"Torso":(-.2,0,-.42),"LArm":(-1.1,.52,-.28),"LForearm":(-1.2,0,0)}),
-      "heavy":(25,{"Torso":(-.32,0,.38),"RArm":(-2.35,0,.18),"RForearm":(-.45,0,0),
-                     "LLeg":(.25,0,0)}),
+      "heavy":(25,{"Torso":(-.42,0,.12),"LArm":(-2.15,0,-.22),"RArm":(-2.35,0,.22),
+                     "LForearm":(-.38,0,0),"RForearm":(-.42,0,0),"LLeg":(.25,0,0)}),
       "launcher":(27,{"Torso":(-.38,0,.30),"RArm":(-2.5,0,.28),"RLeg":(-1.05,0,0),
                         "LArm":(-.75,0,-.16)}),
       "guard":(20,{"LArm":(-1.1,0,-.45),"RArm":(-1.1,0,.45),
@@ -265,7 +265,7 @@ def fighter():
     ]
     for i,(path,widths) in enumerate(specs):
         spike("sculpted golden spike %02d"%i,path,widths,.24 if i<5 else .38,
-              [hair_light,hair,hair_shadow],head)
+              [hair_light,hair,hair if 12 <= i <= 17 else hair_shadow],head)
     # Halo is tilted just above and behind the imposing crown.
     torus("golden halo",(0,.17,2.07),.50,.038,halo_mat,head,rotation=(.27,.20,0))
     for sign,side in ((-1,"L"),(1,"R")):
@@ -370,12 +370,12 @@ def arena():
     root=empty("ArenaRoot")
     # Layered desert floor. Collision is handled by a simple Godot arena plane.
     loft("arena bedrock",[(0,0,-.8),(0,0,-.30),(0,0,0)],[(19,19),(19,19),(18.5,18.5)],rock_a,root,sides=32)
-    for i in range(140):
+    for i in range(80):
         a=random.random()*math.tau
-        r=random.uniform(3,17)
-        h=random.uniform(.015,.06)
+        r=random.uniform(9,17)
+        h=random.uniform(.015,.04)
         uv("mottled dust patch",(math.cos(a)*r,math.sin(a)*r,.005),
-           (random.uniform(.22,1.25),random.uniform(.17,.65),h),grass if i%4==0 else rock_c if i%5==0 else rock_b,root,seg=8,rings=4)
+           (random.uniform(.22,.85),random.uniform(.17,.52),h),grass if i%4==0 else rock_c if i%5==0 else rock_b,root,seg=8,rings=4)
     # Irregular cliffs frame the horizon while keeping the center readable.
     for i in range(33):
         a=math.tau*i/33+random.uniform(-.085,.085)
@@ -386,10 +386,10 @@ def arena():
         cliff("stratified mesa %02d"%i,x,y,height,rad,root,i%3)
         if i%3==0:
             cliff("adjoining mesa %02d"%i,x+rad*.8,y-rad*.7,height*.62,rad*.72,root,(i+1)%3)
-    for i in range(95):
-        a=random.random()*math.tau;r=random.uniform(5,18)
+    for i in range(60):
+        a=random.random()*math.tau;r=random.uniform(9,18)
         x,y=math.cos(a)*r,math.sin(a)*r
-        s=random.uniform(.12,.72)
+        s=random.uniform(.12,.58)
         uv("broken stone %02d"%i,(x,y,s*.28),(s,s*.75,s*.5),rock_b if i%3 else rock_c,root,seg=8,rings=4)
     merge_group("mottled dust patch","batched ground variation")
     merge_group("broken stone","batched scattered rocks")

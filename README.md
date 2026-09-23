@@ -37,6 +37,8 @@ Run `blender -b -t 4 --python blender/generate_assets.py` from the project root.
 
 Run `python3 audio/generate_sfx.py` to recreate the original sound effects. Run `godot --headless --path . --script scripts/smoke_test.gd` to check the combat flow. Run `tools/build_linux.sh` to export and package a Linux x86_64 build after installing Godot 4.7.2 export templates.
 
+Run `tools/build_web.sh` to package a browser build with the Godot Web export templates. Extract the ZIP and serve its files over HTTP with a local web server (for example, `python3 -m http.server` from the extracted directory), then open `index.html`. Godot's Web export requires a browser with WebAssembly and WebGL 2.0. The browser package is exported and inspected but has not yet been exercised on physical mobile hardware.
+
 For rendered selection portraits, run `SOLAR_CAPTURE=portrait xvfb-run -a godot --path .`, then repeat with `portrait_nova` and `portrait_dusk`; import the resulting files with `godot --headless --path . --editor --import --quit`.
 
 The desktop controls are designed for an arena fight; touchscreen controls are rendered automatically when touch events are detected. The game uses the Godot GL Compatibility renderer for a broad range of devices.

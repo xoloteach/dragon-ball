@@ -135,6 +135,18 @@ def torus(name, loc, major, minor, material, p=None, rotation=(0,0,0)):
     return ob
 
 
+def merge_group(prefix, merged_name):
+    """Batch many static props into one object while preserving material slots."""
+    objects=[o for o in bpy.data.objects if o.type=="MESH" and o.name.startswith(prefix)]
+    if len(objects)<2: return
+    bpy.ops.object.select_all(action="DESELECT")
+    for ob in objects: ob.select_set(True)
+    bpy.context.view_layer.objects.active=objects[0]
+    bpy.ops.object.join()
+    objects[0].name=merged_name
+    bpy.ops.object.select_all(action="DESELECT")
+
+
 def animation_library():
     """Object-rig NLA clips exported as independent glTF animations."""
     names=("Torso","Head","LArm","RArm","LForearm","RForearm","LLeg","RLeg")
@@ -241,12 +253,12 @@ def fighter():
       ([(.09,.21,.38),(.21,.99,.51),(.44,1.90,.34)],[.3,.27,0]),
       ([(-.06,.22,.31),(-.21,1.05,.33),(-.62,1.86,.10)],[.3,.26,0]),
       ([(.19,.14,.25),(.42,.88,.12),(.80,1.63,-.22)],[.25,.24,0]),
-      ([(.13,.18,.47),(.66,.48,.73),(1.55,1.08,.62),(2.40,1.60,.23)],[.31,.40,.34,0]),
-      ([(.16,.20,.31),(.81,.68,.43),(1.62,1.22,.18),(2.47,1.69,-.21)],[.32,.40,.33,0]),
-      ([(.07,.22,.17),(.60,.75,.13),(1.39,1.41,-.17),(2.08,1.85,-.55)],[.30,.36,.28,0]),
-      ([(-.13,.16,.47),(-.53,.55,.71),(-1.28,1.10,.58),(-1.77,1.43,.18)],[.27,.35,.30,0]),
-      ([(-.16,.21,.20),(-.71,.78,.17),(-1.31,1.52,-.20),(-1.81,1.90,-.55)],[.28,.34,.25,0]),
-      ([(.16,.22,.60),(.58,.57,1.00),(1.29,1.02,1.06),(1.86,1.45,.82)],[.25,.34,.25,0]),
+      ([(.13,.18,.47),(.66,.53,.69),(1.48,1.20,.34),(2.20,1.80,-.32)],[.29,.36,.30,0]),
+      ([(.17,.20,.33),(.78,.76,.30),(1.49,1.43,-.40),(2.13,2.03,-1.12)],[.30,.36,.30,0]),
+      ([(.07,.22,.17),(.57,.79,-.03),(1.17,1.53,-.66),(1.52,2.05,-1.57)],[.28,.32,.26,0]),
+      ([(-.13,.16,.47),(-.43,.55,.68),(-.77,1.10,.52),(-.98,1.46,.08)],[.24,.27,.22,0]),
+      ([(-.16,.21,.20),(-.51,.79,.09),(-.83,1.43,-.36),(-.91,1.84,-.91)],[.25,.27,.20,0]),
+      ([(.16,.22,.60),(.58,.57,1.00),(1.21,1.04,.92),(1.68,1.53,.53)],[.25,.31,.23,0]),
       ([(-.17,-.08,.47),(-.37,-.33,.41),(-.52,-.53,.21)],[.13,.11,0]),
       ([(.11,-.08,.50),(.08,-.34,.48),(-.08,-.49,.25)],[.16,.13,0]),
       ([(-.03,-.13,.56),(-.29,-.39,.50),(-.44,-.57,.18)],[.21,.18,0]),
@@ -280,6 +292,27 @@ def fighter():
     animation_library()
     bpy.ops.export_scene.gltf(filepath=str(OUT/"solar_ascendant.glb"),export_format="GLB",use_selection=False,
                               export_apply=False,export_yup=True,export_animation_mode="NLA_TRACKS")
+    # Ascended form: taller flame crest, second halo and flared shoulder fins.
+    # Added pieces are removed after its export, leaving the base fighter intact.
+    nova_parts=[]
+    hair_parts=[ob for ob in bpy.data.objects if ob.name.startswith("sculpted golden spike")]
+    for ob in hair_parts: ob.scale=(1.08,1.08,1.12)
+    nova_parts.append(spike("nova central sunfire crest",[(0,.13,.58),(.04,.22,1.26),(.13,.34,2.36)],
+                            [.31,.25,0],.44,[hair_light,hair,hair_shadow],head))
+    nova_parts.append(spike("nova right comet lock",[(.23,.16,.51),(.96,.78,1.12),(2.50,1.90,.68)],
+                            [.34,.43,0],.44,[hair_light,hair,hair_shadow],head))
+    nova_parts.append(spike("nova left comet lock",[(-.21,.16,.51),(-.93,.75,1.04),(-2.12,1.73,.38)],
+                            [.33,.39,0],.44,[hair_light,hair,hair_shadow],head))
+    nova_parts.append(torus("nova outer halo",(0,.17,2.42),.68,.041,halo_mat,head,rotation=(.31,-.22,0)))
+    for sign in (-1,1):
+        nova_parts.append(spike("nova shoulder flare",[(sign*.41,.05,.83),(sign*.68,.11,.91),
+                                (sign*.90,.23,.73)],[.17,.16,0],.24,[hair_light,hair,hair_shadow],torso))
+        nova_parts.append(spike("nova belt ribbon",[(sign*.18,.16,.33),(sign*.28,.38,-.01),
+                                (sign*.46,.52,-.51)],[.12,.13,0],.15,[blue_light,blue,gi],hips))
+    bpy.ops.export_scene.gltf(filepath=str(OUT/"solar_nova.glb"),export_format="GLB",use_selection=False,
+                              export_apply=False,export_yup=True,export_animation_mode="NLA_TRACKS")
+    for ob in nova_parts: bpy.data.objects.remove(ob,do_unlink=True)
+    for ob in hair_parts: ob.scale=(1,1,1)
     # Same rig hierarchy, independently shaped rival: compact dark crest,
     # crimson shoulder mantle and no halo. This is a distinct mesh export.
     halo_obj = bpy.data.objects.get("golden halo")
@@ -292,6 +325,18 @@ def fighter():
         spike("rival scarf tail",[(sign*.20,.25,.82),(sign*.33,.47,.44),(sign*.46,.62,.05)],
               [.16,.13,0],.16,[blue,gi,gi_light],torso)
     bpy.ops.export_scene.gltf(filepath=str(OUT/"dusk_rival.glb"),export_format="GLB",use_selection=False,
+                              export_apply=False,export_yup=True,export_animation_mode="NLA_TRACKS")
+    # Simplified animated mesh for distant AI rendering. Main combat never uses
+    # it at close range, so tiny facial and finger details can be omitted.
+    for ob in list(bpy.data.objects):
+        if ob.type != "MESH": continue
+        low=ob.name.lower()
+        if any(token in low for token in ("finger", "ear hollow", "cheek cel", "lower lip", "thigh fold", "sash fold")):
+            bpy.data.objects.remove(ob,do_unlink=True)
+        elif len(ob.data.vertices)>70:
+            modifier=ob.modifiers.new("distant combat LOD","DECIMATE")
+            modifier.ratio=.56
+    bpy.ops.export_scene.gltf(filepath=str(OUT/"dusk_rival_lod.glb"),export_format="GLB",use_selection=False,
                               export_apply=False,export_yup=True,export_animation_mode="NLA_TRACKS")
 
 
@@ -346,6 +391,8 @@ def arena():
         x,y=math.cos(a)*r,math.sin(a)*r
         s=random.uniform(.12,.72)
         uv("broken stone %02d"%i,(x,y,s*.28),(s,s*.75,s*.5),rock_b if i%3 else rock_c,root,seg=8,rings=4)
+    merge_group("mottled dust patch","batched ground variation")
+    merge_group("broken stone","batched scattered rocks")
     bpy.ops.export_scene.gltf(filepath=str(OUT/"sunscar_arena.glb"),export_format="GLB",use_selection=False,export_yup=True)
 
 

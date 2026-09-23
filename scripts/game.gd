@@ -3,6 +3,10 @@ extends Node3D
 const Fighter = preload("res://scripts/fighter.gd")
 const ARENA = preload("res://assets/models/sunscar_arena.glb")
 const FONT = preload("res://assets/fonts/Rajdhani-Bold.ttf")
+const GROUND_SHADER = preload("res://shaders/ground.gdshader")
+const SOLAR_MODEL = preload("res://assets/models/solar_ascendant.glb")
+const NOVA_MODEL = preload("res://assets/models/solar_nova.glb")
+const DUSK_MODEL = preload("res://assets/models/dusk_rival.glb")
 
 var player: ArenaFighter
 var enemy: ArenaFighter
@@ -13,6 +17,8 @@ var overlay: Control
 var touch_ui: Control
 var p_health: ProgressBar
 var e_health: ProgressBar
+var player_name_label: Label
+var enemy_name_label: Label
 var ki_bar: ProgressBar
 var stamina_bar: ProgressBar
 var combo_label: Label
@@ -39,6 +45,9 @@ var combo_count := 0
 var combo_timer := 0.0
 var player_choice := 0
 var was_charging := false
+var camera_sensitivity := 0.004
+var master_volume_db := 0.0
+var settings_origin := "menu"
 var sun: DirectionalLight3D
 var world: WorldEnvironment
 
@@ -52,6 +61,7 @@ func _ready() -> void:
 
 
 func capture_scene(variant: String) -> void:
+	var capture_wait := .8
 	if variant == "combat":
 		start_fight()
 		state = "combat"
@@ -61,18 +71,32 @@ func capture_scene(variant: String) -> void:
 		state = "combat"
 		status_label.text = ""
 		touch_ui.visible = true
+	elif variant == "action":
+		start_fight()
+		state = "combat"
+		status_label.text = ""
+		enemy.global_position = player.global_position + Vector3(-1.1,0,-2.4)
+		enemy.stunned = 1.0
+		player.facing = (enemy.global_position-player.global_position).normalized()
+		player.action("heavy")
+		capture_wait = .18
 	elif variant == "select":
 		show_select()
-	elif variant == "portrait":
+	elif variant.begins_with("portrait"):
+		if variant == "portrait_nova": spawn_pair("nova")
+		elif variant == "portrait_dusk": spawn_pair("dusk")
 		clear_overlay()
 		hud.visible = false
 		state = "portrait"
 		camera.global_position = player.global_position + Vector3(1.25, 2.75, -6.2)
 		camera.look_at(player.global_position + Vector3.UP * 2.0)
 		camera.fov = 51.0
-	await get_tree().create_timer(0.8).timeout
+	await get_tree().create_timer(capture_wait).timeout
 	var image := get_viewport().get_texture().get_image()
 	image.save_png("res://builds/" + variant + ".png")
+	if variant.begins_with("portrait"):
+		var id := "nova" if variant == "portrait_nova" else ("dusk" if variant == "portrait_dusk" else "solar")
+		image.save_png("res://assets/portraits/" + id + ".png")
 	get_tree().quit()
 
 
@@ -80,10 +104,22 @@ func create_world() -> void:
 	var arena = ARENA.instantiate()
 	arena.name = "SunscarArena"
 	add_child(arena)
+	var floor_mesh: MeshInstance3D = arena.find_child("arena bedrock", true, false)
+	if floor_mesh:
+		var ground_material := ShaderMaterial.new()
+		ground_material.shader = GROUND_SHADER
+		floor_mesh.material_override = ground_material
 	world = WorldEnvironment.new()
 	var env := Environment.new()
-	env.background_mode = Environment.BG_COLOR
-	env.background_color = Color(0.33, 0.57, 0.77)
+	var sky := Sky.new()
+	var sky_material := ProceduralSkyMaterial.new()
+	sky_material.sky_top_color = Color(.14,.33,.57)
+	sky_material.sky_horizon_color = Color(.52,.69,.78)
+	sky_material.ground_horizon_color = Color(.62,.54,.43)
+	sky_material.ground_bottom_color = Color(.23,.24,.28)
+	sky.sky_material = sky_material
+	env.background_mode = Environment.BG_SKY
+	env.sky = sky
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	env.ambient_light_color = Color(0.90, 0.84, 0.76)
 	env.ambient_light_energy = 0.22
@@ -105,26 +141,55 @@ func create_world() -> void:
 	camera.fov = 60
 	camera.current = true
 	add_child(camera)
+	spawn_pair("solar")
+	camera.global_position = Vector3(0, 4, 12)
+	camera.look_at(Vector3(0, 2, 0))
+
+
+func spawn_pair(chosen: String) -> void:
+	if player:
+		remove_child(player)
+		player.queue_free()
+	if enemy:
+		remove_child(enemy)
+		enemy.queue_free()
+	var opponent := "solar" if chosen == "dusk" else "dusk"
 	player = Fighter.new()
-	player.name = "SolarAscendant"
-	player.configure(true)
+	player.name = chosen.capitalize().replace(" ", "") + "Player"
+	player.configure(true, chosen)
 	player.position = Vector3(0, 0, 5.5)
 	add_child(player)
 	enemy = Fighter.new()
-	enemy.name = "DuskRival"
-	enemy.configure(false)
+	enemy.name = opponent.capitalize().replace(" ", "") + "Opponent"
+	enemy.configure(false, opponent)
 	enemy.position = Vector3(0, 0, -5.5)
 	add_child(enemy)
 	player.rival = enemy
 	enemy.rival = player
 	for f in [player, enemy]:
-		f.impact.connect(on_impact)
-		f.blast.connect(on_blast)
-		f.beam.connect(on_beam)
-		f.ultimate.connect(on_ultimate)
-		f.defeated.connect(on_defeated)
-	camera.global_position = Vector3(0, 4, 12)
-	camera.look_at(Vector3(0, 2, 0))
+		wire_fighter(f)
+	if player_name_label:
+		player_name_label.text = fighter_title(chosen)
+		player_name_label.add_theme_color_override("font_color", Color(.52,.79,1) if chosen == "dusk" else Color(1,.82,.35))
+	if enemy_name_label:
+		enemy_name_label.text = fighter_title(opponent)
+		enemy_name_label.add_theme_color_override("font_color", Color(.52,.79,1) if opponent == "dusk" else Color(1,.82,.35))
+
+
+func fighter_title(id: String) -> String:
+	match id:
+		"nova": return "SOLAR NOVA"
+		"dusk": return "DUSK RIVAL"
+		_: return "SOLAR ASCENDANT"
+
+
+func wire_fighter(f: ArenaFighter) -> void:
+	f.impact.connect(on_impact)
+	f.blast.connect(on_blast)
+	f.charged_sphere.connect(on_charged_sphere)
+	f.beam.connect(on_beam)
+	f.ultimate.connect(on_ultimate)
+	f.defeated.connect(on_defeated)
 
 
 func panel(color: Color, border: Color = Color.TRANSPARENT, radius := 12) -> StyleBoxFlat:
@@ -177,13 +242,13 @@ func create_ui() -> void:
 	top.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
 	top.offset_bottom = 96
 	hud.add_child(top)
-	var name_p := label("SOLAR ASCENDANT", 23, Color(1, .82, .35))
-	name_p.position = Vector2(37, 6)
-	hud.add_child(name_p)
-	var name_e := label("DUSK RIVAL", 23, Color(.47, .77, 1))
-	name_e.set_anchors_preset(Control.PRESET_TOP_RIGHT)
-	name_e.position = Vector2(-260, 6)
-	hud.add_child(name_e)
+	player_name_label = label("SOLAR ASCENDANT", 23, Color(1, .82, .35))
+	player_name_label.position = Vector2(37, 6)
+	hud.add_child(player_name_label)
+	enemy_name_label = label("DUSK RIVAL", 23, Color(.47, .77, 1))
+	enemy_name_label.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	enemy_name_label.position = Vector2(-260, 6)
+	hud.add_child(enemy_name_label)
 	p_health = bar(Color(1, .64, .12), Vector2(37, 38), Vector2(412, 22))
 	hud.add_child(p_health)
 	e_health = bar(Color(.3, .66, 1), Vector2(-449, 38), Vector2(412, 22), true)
@@ -259,7 +324,10 @@ func create_touch_controls() -> void:
 		["↑", "up", Vector2(38, -298), Vector2(62, 57)],
 		["↓", "down", Vector2(112, -298), Vector2(62, 57)],
 		["LOCK", "lock", Vector2(-100, -335), Vector2(70, 56)],
-		["VANISH", "vanish", Vector2(-440, -335), Vector2(92, 56)]
+		["VANISH", "vanish", Vector2(-440, -335), Vector2(92, 56)],
+		["FORM", "transform", Vector2(-440, -425), Vector2(92, 54)],
+		["VOLLEY", "volley", Vector2(-330, -425), Vector2(100, 54)],
+		["SPHERE", "sphere", Vector2(-205, -425), Vector2(95, 54)]
 	]
 	for spec in specs:
 		var b := button(spec[0], spec[3], Color(.1, .12, .21, .68))
@@ -312,6 +380,9 @@ func show_menu() -> void:
 	var start := button("ENTER THE ARENA", Vector2(0, 58))
 	start.pressed.connect(show_select)
 	box.add_child(start)
+	var settings_button := button("SETTINGS", Vector2(0, 48))
+	settings_button.pressed.connect(func(): show_settings("menu"))
+	box.add_child(settings_button)
 	var hint := label("WASD MOVE   •   J COMBO   •   K HEAVY   •   L KI BLAST\nSPACE RISE   •   C DESCEND   •   SHIFT DASH   •   E CHARGE", 20, Color(.9,.86,.8))
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	box.add_child(hint)
@@ -319,33 +390,65 @@ func show_menu() -> void:
 
 func show_select() -> void:
 	state = "select"
-	var box := menu_layout("CHOOSE YOUR FIGHTER", "A warrior of solar fire faces the guardian of dusk")
-	var card := button("☀  SOLAR ASCENDANT\nGolden aura  •  Quick combos  •  Celestial beam", Vector2(0, 106))
-	card.add_theme_font_size_override("font_size", 24)
-	card.pressed.connect(start_fight)
-	box.add_child(card)
-	var rival_label := label("VERSUS  •  DUSK RIVAL  •  AN ADAPTIVE AIRBORNE FOE", 22, Color(.55, .79, 1))
-	rival_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	box.add_child(rival_label)
+	var box := menu_layout("CHOOSE YOUR FIGHTER", "Three fighting styles. One sky. Choose your power.")
+	box.set_anchors_preset(Control.PRESET_TOP_LEFT)
+	box.position = Vector2((get_viewport().size.x - 570.0) * .5, 28)
+	box.grow_vertical = Control.GROW_DIRECTION_END
+	var cards := HBoxContainer.new()
+	cards.add_theme_constant_override("separation", 8)
+	box.add_child(cards)
+	var entries := [
+		["solar", "SOLAR\nBALANCED", 0],
+		["nova", "NOVA\nFAST • HIGH KI", 1],
+		["dusk", "DUSK\nPOWER • GUARD", 2]
+	]
+	for entry in entries:
+		var card_box := VBoxContainer.new()
+		card_box.custom_minimum_size.x = 184
+		card_box.add_theme_constant_override("separation", 7)
+		cards.add_child(card_box)
+		var portrait_texture = load("res://assets/portraits/" + entry[0] + ".png")
+		if portrait_texture:
+			var portrait := TextureRect.new()
+			portrait.texture = portrait_texture
+			portrait.custom_minimum_size = Vector2(184, 205)
+			portrait.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+			portrait.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+			card_box.add_child(portrait)
+		var card := button(entry[1], Vector2(184, 94))
+		card.add_theme_font_size_override("font_size", 19)
+		card.pressed.connect(select_fighter.bind(entry[2]))
+		card_box.add_child(card)
+	var hint := label("SOLAR / DUSK / NOVA  •  UNIQUE SPEED, KI AND STRIKING POWER", 19, Color(.75,.81,.9))
+	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	box.add_child(hint)
 	var back := button("BACK", Vector2(0, 50))
 	back.pressed.connect(show_menu)
 	box.add_child(back)
 
 
+func select_fighter(choice: int) -> void:
+	player_choice = choice
+	start_fight()
+
+
 func start_fight() -> void:
 	clear_overlay()
-	player.health = player.max_health
-	player.ki = 45.0
-	player.stamina = 100.0
-	player.velocity = Vector3.ZERO
-	player.global_position = Vector3(0, 0, 5.5)
-	player.rotation = Vector3.ZERO
-	enemy.health = enemy.max_health
-	enemy.ki = 55.0
-	enemy.stamina = 100.0
-	enemy.velocity = Vector3.ZERO
-	enemy.global_position = Vector3(0, 0, -5.5)
-	enemy.rotation = Vector3.ZERO
+	for p in projectile_data:
+		if is_instance_valid(p.node): p.node.queue_free()
+	projectile_data.clear()
+	for e in effect_data:
+		if is_instance_valid(e.node): e.node.queue_free()
+	effect_data.clear()
+	var chosen: String = ["solar", "nova", "dusk"][player_choice]
+	if player.fighter_id != chosen:
+		spawn_pair(chosen)
+	player.reset_round(Vector3(0, 0, 5.5))
+	enemy.reset_round(Vector3(0, 0, -5.5))
+	sun.light_energy = .72
+	camera.fov = 55.0
+	camera_yaw = 0.0
+	hit_stop = 0.0
 	combo_count = 0
 	combo_timer = 0.0
 	was_charging = false
@@ -379,12 +482,51 @@ func toggle_pause() -> void:
 		var resume := button("RESUME", Vector2(0, 54))
 		resume.pressed.connect(toggle_pause)
 		box.add_child(resume)
+		var settings_button := button("SETTINGS", Vector2(0, 54))
+		settings_button.pressed.connect(func(): show_settings("pause"))
+		box.add_child(settings_button)
 		var menu := button("MAIN MENU", Vector2(0, 54))
 		menu.pressed.connect(show_menu)
 		box.add_child(menu)
 	elif state == "pause":
 		clear_overlay()
 		state = "combat"
+
+
+func show_settings(origin: String) -> void:
+	settings_origin = origin
+	state = "settings"
+	var box := menu_layout("SETTINGS", "Adjust the arena before the next clash")
+	var volume := button("VOLUME  " + str(roundi((master_volume_db + 24.0) / 24.0 * 100.0)) + "%", Vector2(0, 54))
+	volume.pressed.connect(func():
+		master_volume_db = -24.0 if master_volume_db >= 0.0 else master_volume_db + 6.0
+		AudioServer.set_bus_volume_db(0, master_volume_db)
+		volume.text = "VOLUME  " + str(roundi((master_volume_db + 24.0) / 24.0 * 100.0)) + "%"
+	)
+	box.add_child(volume)
+	var look := button("CAMERA SENSITIVITY  " + str(snappedf(camera_sensitivity / .004, .25)) + "×", Vector2(0, 54))
+	look.pressed.connect(func():
+		camera_sensitivity = .002 if camera_sensitivity >= .006 else camera_sensitivity + .001
+		look.text = "CAMERA SENSITIVITY  " + str(snappedf(camera_sensitivity / .004, .25)) + "×"
+	)
+	box.add_child(look)
+	var shadows := button("SHADOWS  ON" if sun.shadow_enabled else "SHADOWS  OFF", Vector2(0, 54))
+	shadows.pressed.connect(func():
+		sun.shadow_enabled = not sun.shadow_enabled
+		shadows.text = "SHADOWS  ON" if sun.shadow_enabled else "SHADOWS  OFF"
+	)
+	box.add_child(shadows)
+	var back := button("BACK", Vector2(0, 54))
+	back.pressed.connect(return_from_settings)
+	box.add_child(back)
+
+
+func return_from_settings() -> void:
+	if settings_origin == "pause":
+		state = "combat"
+		toggle_pause()
+	else:
+		show_menu()
 
 
 func _input(event: InputEvent) -> void:
@@ -406,11 +548,11 @@ func _input(event: InputEvent) -> void:
 			var anchor := Vector2(150, get_viewport().size.y - 145)
 			touch_move = ((event.position - anchor) / 76.0).limit_length(1.0)
 		elif event.index == touch_look_id:
-			camera_yaw -= event.relative.x * .004
-			camera_pitch = clampf(camera_pitch - event.relative.y * .004, -.65, .53)
+			camera_yaw -= event.relative.x * camera_sensitivity
+			camera_pitch = clampf(camera_pitch - event.relative.y * camera_sensitivity, -.65, .53)
 	elif event is InputEventMouseMotion and Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT):
-		camera_yaw -= event.relative.x * .004
-		camera_pitch = clampf(camera_pitch - event.relative.y * .004, -.65, .53)
+		camera_yaw -= event.relative.x * camera_sensitivity
+		camera_pitch = clampf(camera_pitch - event.relative.y * camera_sensitivity, -.65, .53)
 	elif event is InputEventMouseButton and event.pressed and state == "combat":
 		if event.button_index == MOUSE_BUTTON_LEFT: execute_action("light")
 	elif event is InputEventKey and event.pressed and not event.echo:
@@ -419,8 +561,11 @@ func _input(event: InputEvent) -> void:
 			KEY_J: execute_action("light")
 			KEY_K: execute_action("heavy")
 			KEY_L: execute_action("blast")
+			KEY_X: execute_action("volley")
+			KEY_Z: execute_action("sphere")
 			KEY_R: execute_action("beam")
 			KEY_F: execute_action("ultimate")
+			KEY_T: execute_action("transform")
 			KEY_V: execute_action("vanish")
 			KEY_SHIFT: execute_action("dodge")
 			KEY_TAB: execute_action("lock")
@@ -428,6 +573,9 @@ func _input(event: InputEvent) -> void:
 
 func execute_action(kind: String) -> void:
 	if state != "combat": return
+	if kind == "transform":
+		transform_player()
+		return
 	if kind == "lock":
 		player.locked = not player.locked
 		return
@@ -435,13 +583,48 @@ func execute_action(kind: String) -> void:
 	if kind == "heavy" and Input.is_key_pressed(KEY_SPACE): kind = "launcher"
 	if player.action(kind):
 		if kind == "dodge" or kind == "vanish":
-			spawn_afterimage(player, Color(1,.65,.12,.36))
-		if kind == "blast": play_sfx("ki_blast", -.6)
+			spawn_afterimage(player, Color(player.tint.r,player.tint.g,player.tint.b,.36))
+		if kind == "blast" or kind == "volley": play_sfx("ki_blast", -.6)
+		if kind == "sphere": play_sfx("charge", -1.5)
 		if kind == "beam" or kind == "ultimate": play_sfx("beam", -1.2)
 		if kind == "light" or kind == "heavy" or kind == "launcher":
 			if enemy.stunned > 0.0:
 				combo_count += 1
 				combo_timer = 2.0
+
+
+func transform_player() -> void:
+	if player.fighter_id != "solar" or player.ki < 75.0 or player.stunned > 0.0:
+		return
+	var previous := player
+	var upgraded: ArenaFighter = Fighter.new()
+	upgraded.name = "SolarNovaPlayer"
+	upgraded.configure(true,"nova")
+	upgraded.position = previous.position
+	add_child(upgraded)
+	upgraded.health = previous.health / previous.max_health * upgraded.max_health
+	upgraded.ki = maxf(0.0, previous.ki - 62.0)
+	upgraded.stamina = previous.stamina
+	upgraded.velocity = previous.velocity
+	upgraded.facing = previous.facing
+	upgraded.flying = previous.flying
+	upgraded.locked = previous.locked
+	upgraded.rival = enemy
+	enemy.rival = upgraded
+	wire_fighter(upgraded)
+	remove_child(previous)
+	previous.queue_free()
+	player = upgraded
+	player_choice = 1
+	player_name_label.text = "SOLAR NOVA"
+	spawn_flash(player.global_position + Vector3.UP * 1.5, player.tint, 2.2)
+	spawn_ring(player.global_position + Vector3.UP * .12, player.tint, 2.4)
+	spawn_dust(player.global_position + Vector3.UP * .13, 2.0)
+	play_sfx("beam", -1.0)
+	sun.light_energy = 3.2
+	get_tree().create_tween().tween_property(sun, "light_energy", .72, 1.0)
+	fov_pulse = 16.0
+	shake = .38
 
 
 func _physics_process(delta: float) -> void:
@@ -520,7 +703,9 @@ func ai_step(delta: float) -> void:
 			elif ai_mood > .55: enemy.action("heavy")
 			else: enemy.action("light")
 		elif distance < 15.0:
-			if enemy.ki > 40.0 and ai_mood > .84: enemy.action("beam")
+			if enemy.ki > 55.0 and ai_mood > .91: enemy.action("sphere")
+			elif enemy.ki > 40.0 and ai_mood > .82: enemy.action("beam")
+			elif enemy.ki > 25.0 and ai_mood > .68: enemy.action("volley")
 			elif enemy.ki > 9.0 and ai_mood > .42: enemy.action("blast")
 			elif ai_mood > .75: enemy.action("dodge")
 		if player.attack_name == "blast" and distance < 7.0 and ai_mood > .6:
@@ -531,14 +716,15 @@ func update_camera(delta: float) -> void:
 	if not camera or not player: return
 	if state == "portrait": return
 	var pivot := player.global_position + Vector3.UP * 1.7
+	var close_attack := player.attack_name.begins_with("light") or player.attack_name == "heavy" or player.attack_name == "launcher"
 	if player.locked and enemy and enemy.health > 0.0:
 		var toward := enemy.global_position - player.global_position
 		var angle := atan2(-toward.x, -toward.z)
-		camera_yaw = lerp_angle(camera_yaw, angle + 0.64, minf(1.0, delta * 3.0))
-		pivot = pivot.lerp((player.global_position + enemy.global_position) * .5 + Vector3.UP * 1.5, .31)
+		camera_yaw = lerp_angle(camera_yaw, angle + (1.43 if close_attack else 1.13), minf(1.0, delta * (7.0 if close_attack else 3.5)))
+		pivot = pivot.lerp((player.global_position + enemy.global_position) * .5 + Vector3.UP * 1.5, .63 if close_attack else .46)
 	var forward := Vector3(sin(camera_yaw) * cos(camera_pitch), sin(camera_pitch), -cos(camera_yaw) * cos(camera_pitch))
-	var distance := clampf(6.1 + player.global_position.distance_to(enemy.global_position) * .11, 6.4, 8.2)
-	var target := pivot - forward * distance + Vector3.UP * .65 + Vector3(cos(camera_yaw), 0, sin(camera_yaw)) * 0.7
+	var distance := clampf(7.0 + player.global_position.distance_to(enemy.global_position) * .13 + (1.25 if close_attack else 0.0), 7.2, 9.6)
+	var target := pivot - forward * distance + Vector3.UP * .95 + Vector3(cos(camera_yaw), 0, sin(camera_yaw)) * 0.45
 	shake = move_toward(shake, 0.0, delta * 4.5)
 	if shake > 0.0: target += Vector3(randf_range(-1,1), randf_range(-1,1), randf_range(-1,1)) * shake
 	camera.global_position = camera.global_position.lerp(target, minf(1.0, delta * 10.0))
@@ -547,7 +733,7 @@ func update_camera(delta: float) -> void:
 	camera.fov = lerpf(camera.fov, 55.0 + fov_pulse, minf(1.0, delta * 8.0))
 	if lock_marker and state == "combat" and player.locked and enemy.health > 0.0:
 		lock_marker.visible = not camera.is_position_behind(enemy.global_position + Vector3.UP * 1.5)
-		lock_marker.position = camera.unproject_position(enemy.global_position + Vector3.UP * 3.0) - Vector2(13, 14)
+		lock_marker.position = camera.unproject_position(enemy.global_position + Vector3.UP * 4.0) - Vector2(13, 14)
 	else:
 		lock_marker.visible = false
 
@@ -556,7 +742,7 @@ func update_hud(_delta: float) -> void:
 	if not p_health: return
 	p_health.value = player.health / player.max_health * 100.0
 	e_health.value = enemy.health / enemy.max_health * 100.0
-	ki_bar.value = player.ki
+	ki_bar.value = player.ki / player.max_ki * 100.0
 	stamina_bar.value = player.stamina
 
 
@@ -580,16 +766,30 @@ func energy_ball(radius: float, color: Color) -> MeshInstance3D:
 
 
 func on_blast(origin: Vector3, direction: Vector3, power: float, owner: ArenaFighter) -> void:
-	var color := Color(1, .72, .13) if owner == player else Color(.23, .67, 1)
+	var color := owner.tint
 	var ball := energy_ball(.24, color)
 	ball.global_position = origin
-	projectile_data.append({"node":ball,"direction":direction,"owner":owner,"power":power,"life":1.6})
+	projectile_data.append({"node":ball,"direction":direction,"owner":owner,"power":power,"life":1.6,"speed":23.0,"charged":false,"trail":0.0})
 	spawn_flash(origin, color, .45)
 	if owner != player: play_sfx("ki_blast", -4.5)
 
 
+func on_charged_sphere(origin: Vector3, direction: Vector3, power: float, owner: ArenaFighter) -> void:
+	var color := owner.tint
+	var ball := energy_ball(1.02 if owner.fighter_id == "nova" else .75, color)
+	ball.global_position = origin
+	var light := OmniLight3D.new()
+	light.light_color = color
+	light.light_energy = 1.7
+	light.omni_range = 5.5
+	ball.add_child(light)
+	projectile_data.append({"node":ball,"direction":direction,"owner":owner,"power":power,"life":2.3,"speed":12.5,"charged":true,"trail":0.0})
+	spawn_ring(origin,color,.7)
+	play_sfx("beam", -3.0)
+
+
 func on_beam(origin: Vector3, direction: Vector3, power: float, owner: ArenaFighter) -> void:
-	var color := Color(1, .85, .25) if owner == player else Color(.32, .72, 1)
+	var color := owner.tint
 	var length := 18.0
 	var beam_mesh := CylinderMesh.new()
 	beam_mesh.top_radius = .33
@@ -610,6 +810,9 @@ func on_beam(origin: Vector3, direction: Vector3, power: float, owner: ArenaFigh
 	effect_data.append({"node":beam_node,"life":.45,"max":.45,"scale":1.0,"kind":"beam"})
 	var target := enemy if owner == player else player
 	if target.global_position.distance_to(origin) < length and distance_to_ray(target.global_position + Vector3.UP, origin, direction) < 1.7:
+		if owner.fighter_id == "dusk":
+			target.stamina = maxf(0.0, target.stamina - 32.0)
+			if target.stamina <= 0.0: target.stunned = maxf(target.stunned, .85)
 		target.take_hit(power, direction * 14.0 + Vector3.UP * 5.0, owner)
 		on_impact(target.global_position + Vector3.UP * 1.2, 2.0)
 	spawn_flash(origin, color, 1.0)
@@ -617,17 +820,14 @@ func on_beam(origin: Vector3, direction: Vector3, power: float, owner: ArenaFigh
 
 
 func on_ultimate(origin: Vector3, direction: Vector3, owner: ArenaFighter) -> void:
-	var color := Color(1, .79, .15) if owner == player else Color(.27, .72, 1)
+	var color := owner.tint
 	var sphere := energy_ball(1.45, color)
 	sphere.global_position = origin + direction * 2.0
-	effect_data.append({"node":sphere,"life":1.7,"max":1.7,"scale":1.0,"kind":"ultimate"})
+	effect_data.append({"node":sphere,"life":1.7,"max":1.7,"scale":1.0,"kind":"ultimate",
+		"origin":origin,"direction":direction,"owner":owner,"triggered":false})
 	for i in range(6):
 		var at := origin + direction * float(i + 1) * 3.0
 		spawn_ring(at, color, 1.6 + i * .28)
-	var target := enemy if owner == player else player
-	if target.global_position.distance_to(origin) < 22.0:
-		target.take_hit(44.0, direction * 18.0 + Vector3.UP * 9.0, owner)
-		on_impact(target.global_position, 3.0)
 	sun.light_energy = 3.4
 	get_tree().create_tween().tween_property(sun, "light_energy", 0.72, 1.4)
 	fov_pulse = 20.0
@@ -643,12 +843,17 @@ func update_projectiles(delta: float) -> void:
 		var p := projectile_data[i]
 		p.life -= delta
 		var ob: MeshInstance3D = p.node
-		ob.global_position += p.direction * delta * 23.0
+		ob.global_position += p.direction * delta * p.speed
 		ob.rotate_y(delta * 13.0)
+		p.trail -= delta
+		if p.charged and p.trail <= 0.0:
+			p.trail = .075
+			spawn_flash(ob.global_position, p.owner.tint, .28)
 		var target: ArenaFighter = enemy if p.owner == player else player
-		if ob.global_position.distance_to(target.global_position + Vector3.UP * 1.4) < 1.15:
+		if ob.global_position.distance_to(target.global_position + Vector3.UP * 1.4) < (1.85 if p.charged else 1.15):
 			target.take_hit(p.power, p.direction * 6.0 + Vector3.UP * 1.5, p.owner)
-			on_impact(ob.global_position, .9)
+			on_impact(ob.global_position, 2.4 if p.charged else .9)
+			if p.charged: spawn_ring(ob.global_position, p.owner.tint, 1.5)
 			p.life = 0.0
 		if p.life <= 0.0:
 			ob.queue_free()
@@ -693,6 +898,8 @@ func on_impact(where: Vector3, severity: float) -> void:
 	if where.y < 2.3:
 		spawn_ring(Vector3(where.x, .06, where.z), Color(.8, .58, .32), severity * 1.1)
 		spawn_ground_mark(Vector3(where.x,.025,where.z), severity)
+		spawn_dust(Vector3(where.x,.13,where.z), severity)
+		spawn_debris(Vector3(where.x,.18,where.z), severity)
 
 
 func spawn_ground_mark(where: Vector3, severity: float) -> void:
@@ -712,8 +919,60 @@ func spawn_ground_mark(where: Vector3, severity: float) -> void:
 	effect_data.append({"node":ob,"life":5.5,"max":5.5,"scale":1.0,"kind":"mark"})
 
 
+func spawn_dust(where: Vector3, severity: float) -> void:
+	var dust := GPUParticles3D.new()
+	dust.amount = 22
+	dust.lifetime = .76
+	dust.one_shot = true
+	dust.explosiveness = 1.0
+	var quad := QuadMesh.new()
+	quad.size = Vector2(.22,.22) * severity
+	var material := StandardMaterial3D.new()
+	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	material.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+	material.albedo_color = Color(.59,.43,.31,.36)
+	quad.material = material
+	dust.draw_pass_1 = quad
+	var process := ParticleProcessMaterial.new()
+	process.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_SPHERE
+	process.emission_sphere_radius = .34 * severity
+	process.direction = Vector3.UP
+	process.spread = 70.0
+	process.initial_velocity_min = .7
+	process.initial_velocity_max = 2.5 * severity
+	process.gravity = Vector3(0,-1.5,0)
+	process.scale_min = .45
+	process.scale_max = 1.5
+	dust.process_material = process
+	add_child(dust)
+	dust.global_position = where
+	dust.emitting = true
+	effect_data.append({"node":dust,"life":1.0,"max":1.0,"scale":1.0,"kind":"dust"})
+
+
+func spawn_debris(where: Vector3, severity: float) -> void:
+	for i in range(7):
+		var stone := SphereMesh.new()
+		stone.radius = randf_range(.055,.13) * severity
+		stone.height = stone.radius * 2.0
+		stone.radial_segments = 6
+		stone.rings = 4
+		var ob := MeshInstance3D.new()
+		ob.mesh = stone
+		var material := StandardMaterial3D.new()
+		material.albedo_color = Color(.31,.25,.22) if i%3 == 0 else Color(.56,.38,.25)
+		ob.material_override = material
+		add_child(ob)
+		ob.global_position = where
+		var angle := TAU * float(i) / 7.0
+		var velocity := Vector3(cos(angle),randf_range(.6,1.35),sin(angle)) * randf_range(1.8,3.5) * severity
+		effect_data.append({"node":ob,"life":.88,"max":.88,"scale":1.0,"kind":"debris","velocity":velocity})
+
+
 func spawn_afterimage(who: ArenaFighter, color: Color) -> void:
-	var ghost := preload("res://assets/models/solar_ascendant.glb").instantiate()
+	var packed: PackedScene = DUSK_MODEL if who.fighter_id == "dusk" else (NOVA_MODEL if who.fighter_id == "nova" else SOLAR_MODEL)
+	var ghost := packed.instantiate()
 	ghost.scale = Vector3.ONE * .92
 	ghost.rotation.y = who.model.rotation.y
 	for part in ghost.find_children("*", "MeshInstance3D", true, false):
@@ -747,8 +1006,27 @@ func update_effects(delta: float) -> void:
 		var node: Node3D = e.node
 		if e.kind == "flash": node.scale = Vector3.ONE * e.scale * (1.0 + 2.0 * (1.0 - e.life/e.max))
 		elif e.kind == "ring": node.scale = Vector3.ONE * (1.0 + 1.8 * (1.0 - e.life/e.max))
-		elif e.kind == "ultimate": node.scale = Vector3.ONE * (1.0 + 3.0 * (1.0 - e.life/e.max))
+		elif e.kind == "ultimate":
+			var elapsed: float = e.max - e.life
+			node.scale = Vector3.ONE * (0.55 + minf(1.7, elapsed * 1.5))
+			if elapsed > .75:
+				node.global_position = e.origin + e.direction * (2.0 + (elapsed - .75) * 25.0)
+			if elapsed > 1.10 and not e.triggered:
+				e.triggered = true
+				var target: ArenaFighter = enemy if e.owner == player else player
+				if target.global_position.distance_to(e.origin) < 24.0:
+					var ultimate_damage := 54.0 if e.owner.fighter_id == "nova" else (39.0 if e.owner.fighter_id == "dusk" else 44.0)
+					if e.owner.fighter_id == "dusk":
+						target.stamina = 0.0
+						target.guarding = false
+					target.take_hit(ultimate_damage, e.direction * 18.0 + Vector3.UP * 9.0, e.owner)
+					on_impact(target.global_position, 3.0)
+					spawn_ring(target.global_position + Vector3.UP, e.owner.tint, 2.6)
 		elif e.kind == "beam": node.scale.x = maxf(.02, e.life/e.max)
+		elif e.kind == "debris":
+			node.global_position += e.velocity * delta
+			e.velocity += Vector3(0,-13,0) * delta
+			if node.global_position.y < .05: node.global_position.y = .05
 		if e.life <= 0.0:
 			node.queue_free()
 			effect_data.remove_at(i)

@@ -13,4 +13,16 @@ mkdir -p builds/web
   python3 -c 'from pathlib import Path; Path("../solar-ascendant-web.zip").unlink(missing_ok=True)'
   zip -9 -q ../solar-ascendant-web.zip index.* -x '*.import'
 )
+python3 - <<'PY'
+from pathlib import Path
+from shutil import copy2
+
+web = Path('builds/web')
+docs = Path('docs')
+docs.mkdir(exist_ok=True)
+for source in web.glob('index.*'):
+    if not source.name.endswith('.import'):
+        copy2(source, docs / source.name)
+(docs / '.nojekyll').touch()
+PY
 printf 'Web build ready: %s\n' "$repo_root/builds/solar-ascendant-web.zip"

@@ -2,6 +2,8 @@
 
 An original 3D anime arena fighter built with Godot 4.7.2 and Blender 5.2.2. Inspired by the supplied hand drawing: immense golden hair, a luminous halo, dark martial gi, cobalt accents, and a golden energy aura.
 
+[Play in browser](https://xoloteach.github.io/dragon-ball/) · [Download Linux or Web build](https://github.com/xoloteach/dragon-ball/releases/tag/v0.2.0) · [Gameplay screenshots](docs/VISUAL_REVIEW.md)
+
 ## Run
 
 Open `project.godot` in Godot 4.7.2 or newer and press Play. Run from a terminal with `godot --path .`.
